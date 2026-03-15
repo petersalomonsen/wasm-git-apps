@@ -148,6 +148,64 @@ async function clearOPFS(repoName) {
 }
 ```
 
+## Data Storage Patterns
+
+Git is the data layer for these apps. To avoid merge conflicts when multiple browsers or users access the same app, follow these patterns:
+
+### One file per record
+
+**Never** store all records in a single JSON file. Instead, create one file per record in a directory:
+
+```
+data/
+├── entries/
+│   ├── 2026-03-15T14-30-00-abc123.json
+│   ├── 2026-03-15T15-00-00-def456.json
+│   └── 2026-03-15T15-30-00-ghi789.json
+└── (optional) index.json  ← regenerated from entries/
+```
+
+This way, two users adding records simultaneously create different files — no conflict. Use a unique identifier in the filename (timestamp + random suffix, or a UUID).
+
+### Pull before push
+
+Always pull from the remote before pushing to pick up changes from other clients. If the push fails (conflict), pull and retry:
+
+```javascript
+// In the worker: pull-commit-push with retry
+function pullCommitAndPush(filename, contents, commitMsg) {
+    FS.chdir(currentRepoDir);
+    // Pull latest changes first
+    try { lg.callMain(['pull']); } catch (e) { /* empty repo or no remote changes */ }
+    FS.chdir(currentRepoDir);
+    FS.writeFile(filename, contents);
+    lg.callMain(['add', '--verbose', filename]);
+    FS.chdir(currentRepoDir);
+    lg.callMain(['commit', '-m', commitMsg]);
+    FS.chdir(currentRepoDir);
+    lg.callMain(['push']);
+}
+```
+
+### Reading data
+
+To list all records, read the directory and parse each file:
+
+```javascript
+// In the worker: list all entries
+const entries = FS.readdir('data/entries')
+    .filter(f => f.endsWith('.json'))
+    .map(f => JSON.parse(FS.readFile('data/entries/' + f, { encoding: 'utf8' })));
+```
+
+### Conflict resolution strategy
+
+For the rare case where two users edit the **same** file:
+- The second push will fail
+- Pull to get the other user's changes
+- For most apps, **last-write-wins** is acceptable — just overwrite and re-push
+- For collaborative apps, consider **branch-per-user** where each user pushes to their own branch and merges happen server-side
+
 ## Creating a New Web App
 
 When asked to create a web app, set it up in `/workspaces/<app-name>` as its own git repo. A starter template is available at `/home/node/templates/wasm-git-opfs/` — use it as reference or copy from it.
@@ -186,6 +244,44 @@ Steps:
 7. **Write Playwright tests** and run them
 
 Use URLs like `http://localhost:8080/myrepo.git` (proxied to git server) for clone/push from the browser. The git server auto-creates bare repos on first access.
+
+## Service Worker for Offline Support
+
+Every app **must** include a service worker for offline availability. Use the **network-first** strategy for app files (HTML, JS, CSS) so users always get fresh content when online, and fall back to cache when offline.
+
+### Strategy
+
+- **Network-first** for HTML, JS, CSS, JSON — always fetch fresh when online, prevents stale cache bugs
+- **Cache-first** for wasm assets (`lg2_opfs.js`, `lg2_opfs.wasm`) — large files that are versioned by npm
+- **Never cache** git protocol requests or `/ping`
+- **skipWaiting + clients.claim** — new service worker activates immediately
+
+### Service Worker (`public/sw.js`)
+
+See `/home/node/templates/wasm-git-opfs/public/sw.js` for the reference implementation.
+
+Key points:
+- `self.skipWaiting()` in the install event
+- `self.clients.claim()` in the activate event
+- Clean up old caches on activate
+- Network-first fetch handler with cache fallback for offline
+
+### Registration (in `index.html`)
+
+```javascript
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js');
+}
+```
+
+### Service Worker Playwright Tests
+
+You **must** test that:
+1. The service worker registers and activates
+2. The app loads when offline (after initial visit)
+3. Updated content is served when online (no stale cache)
+
+See `/home/node/templates/wasm-git-opfs/tests/sw.spec.js` for the test patterns. This is critical — stale cache bugs confuse users and must be caught by tests.
 
 ## Writing Playwright Tests
 
@@ -230,3 +326,7 @@ npx playwright test
 5. **Proxy git requests** through the web app server to avoid CORS issues
 6. **Write Playwright tests** for all functionality and run them after each significant change
 7. **Use `FS.chdir(currentRepoDir)` before each git operation** — WASMFS can lose track of cwd
+8. **Include a service worker** for offline availability — use network-first strategy to prevent stale cache
+9. **Test the service worker** with Playwright — verify offline access works AND that updates are served fresh when online
+10. **One file per record** — never store all data in a single file; use a directory of individual JSON files to avoid merge conflicts
+11. **Pull before push** — always pull latest changes before pushing to handle concurrent access from multiple browsers/users

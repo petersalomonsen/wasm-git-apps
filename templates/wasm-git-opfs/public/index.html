@@ -32,6 +32,11 @@
     <div id="status">Initializing...</div>
 
     <script type="module">
+        // Register service worker for offline support
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.register('/sw.js');
+        }
+
         const repoUrl = `${location.origin}/myrepo.git`;
         const statusEl = document.getElementById('status');
 

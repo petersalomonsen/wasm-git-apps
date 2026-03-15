@@ -22,6 +22,10 @@ RUN chmod +x /usr/local/share/scripts/*.sh
 COPY --chown=node:node templates/ /home/node/templates/
 COPY --chown=node:node .devcontainer/skills/agent-skills.md /home/node/AGENTS.md
 
+# Symlink AGENTS.md into /workspaces so copilot auto-discovers it
+# (copilot walks up from cwd looking for AGENTS.md)
+RUN ln -s /home/node/AGENTS.md /workspaces/AGENTS.md
+
 # Set working directory to workspaces (where the app will be created)
 WORKDIR /workspaces
 
