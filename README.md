@@ -1,21 +1,55 @@
 # wasm-git-apps
 
-A devcontainer image for autonomously creating, testing, and deploying web applications using GitHub Copilot CLI in yolo mode. This repository is the **image source and template** — each app built inside the container gets its own workspace and git repository.
+A devcontainer for AI-driven creation of web applications that use **Git as their application data store** — powered by [wasm-git](https://github.com/petersalomonsen/wasm-git) and the browser's Origin Private File System (OPFS).
 
-Web apps use [wasm-git](https://github.com/petersalomonsen/wasm-git) with the OPFS (Origin Private File System) backend for client-side Git storage, and include a built-in Git server for push/sync operations.
+Instead of a traditional database, these apps store all user data as Git commits. Every change is versioned, the app works offline, and users can export their data at any time by simply cloning a repo.
 
-## Overview
+## Why Git Instead of a Database?
 
-This project provides:
+AI-powered app builders like Lovable and Bolt typically scaffold apps backed by a traditional database. This project explores an alternative: **Git as the data layer**, running entirely in the browser via WebAssembly.
 
-- A **devcontainer image** published to GitHub Packages (`ghcr.io/petersalomonsen/wasm-git-apps`)
-- A **starter template** with wasm-git OPFS integration, ready for Copilot CLI to extend
+### Versioned data by default
+
+Every save is a commit. Users get full change history for free — undo, audit trails, and diffs — without building any of that into the application layer.
+
+### Offline-first
+
+The OPFS backend persists data locally in the browser. The app works without a network connection and syncs when back online. No "connection lost" error states to handle.
+
+### Multi-tenancy via repos
+
+Each user gets their own Git repository. This provides natural data isolation — no shared database tables, no row-level security policies, no tenant ID columns. Each user's data is a separate repo on the server.
+
+### Git-native governance
+
+Git's collaboration model can be applied to application data:
+
+- **Branch protection** — require all data changes to go through a branch and merge, preventing direct writes to the main data
+- **Required checks** — validation scripts stored inside the repo that must pass before a merge is accepted
+- **Policy-as-code** — the validation rules themselves are versioned; changing them requires a reviewed PR, like a "policy change" that is auditable and reversible
+
+This brings DevOps-style governance to user data — something databases don't offer natively.
+
+### Data portability
+
+A user's data is a Git repo. They can clone it, fork it, or move it to another server. This satisfies data export requirements (GDPR right to data portability) without building any export functionality into the app.
+
+### Hidden complexity
+
+The end user never sees Git. The app presents a normal UI — save, edit, delete — while Git handles versioning, sync, and conflict resolution behind the scenes. The complexity of Git becomes an implementation detail, not a user-facing concept.
+
+## How It Works
+
+This project provides a **devcontainer image** (`ghcr.io/petersalomonsen/wasm-git-apps`) with everything needed for an AI agent to autonomously build wasm-git OPFS web apps:
+
 - **GitHub Copilot CLI** in `--yolo` mode for autonomous development
-- A **Git HTTP server** so web apps can push and sync data locally
-- **Playwright** for end-to-end testing
-- **Kubernetes manifests** for deploying persistent dev environments
+- **wasm-git OPFS templates** and **agent instructions** (`AGENTS.md`) baked into the image
+- A **Git HTTP server** that auto-creates repos on first access
+- **Playwright** with Chromium for end-to-end testing
 
-## Architecture
+The agent reads the instructions, scaffolds an app in `/workspaces`, writes Playwright tests, and runs them — all autonomously.
+
+### Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -37,152 +71,83 @@ This project provides:
 │                       └──────────────────────┘      │
 │                                                     │
 │  ┌──────────────────────────────────────────────┐   │
-│  │ /workspace (app's own git repo)              │   │
+│  │ /workspaces (app's own git repo)             │   │
 │  └──────────────────────────────────────────────┘   │
 └─────────────────────────────────────────────────────┘
 ```
 
-## Quick Start
+### wasm-git + OPFS
 
-### Using the pre-built image (recommended)
-
-1. Create a new directory for your app:
-
-   ```bash
-   mkdir my-app && cd my-app
-   ```
-
-2. Add the devcontainer configuration:
-
-   ```bash
-   mkdir -p .devcontainer
-   cp /path/to/wasm-git-apps/devcontainer-template/devcontainer.json .devcontainer/
-   ```
-
-   Or create `.devcontainer/devcontainer.json` manually:
-
-   ```json
-   {
-     "name": "wasm-git-app",
-     "image": "ghcr.io/petersalomonsen/wasm-git-apps:latest",
-     "remoteUser": "node",
-     "containerEnv": {
-       "GITHUB_TOKEN": "${localEnv:GITHUB_TOKEN}"
-     },
-     "forwardPorts": [3000, 8080],
-     "postCreateCommand": "bash /usr/local/share/scripts/init-workspace.sh"
-   }
-   ```
-
-3. Set your GitHub token:
-
-   ```bash
-   export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-   ```
-
-4. Start the devcontainer:
-
-   ```bash
-   devcontainer up --workspace-folder .
-   devcontainer exec --workspace-folder . bash
-   ```
-
-5. The workspace is automatically scaffolded with the wasm-git OPFS template and initialized as its own git repo. Start building:
-
-   ```bash
-   copilot --yolo -p "Build a note-taking app that stores notes as git commits"
-   ```
-
-### Building the image locally
-
-1. Clone this repository:
-
-   ```bash
-   git clone https://github.com/petersalomonsen/wasm-git-apps.git
-   cd wasm-git-apps
-   ```
-
-2. Open in VS Code with the Dev Containers extension, or build directly:
-
-   ```bash
-   devcontainer up --workspace-folder .
-   devcontainer exec --workspace-folder . bash
-   ```
-
-## How It Works
-
-### Workspace lifecycle
-
-When the devcontainer starts, the `init-workspace.sh` script:
-
-1. Starts the Git HTTP server on port 3000
-2. Scaffolds `/workspace` from the wasm-git OPFS template (if empty)
-3. Runs `npm install` and copies wasm-git OPFS files into `public/`
-4. Initializes `/workspace` as its own git repo with an initial commit
-
-The workspace is the app's own repository — completely independent from this image source repo.
-
-### wasm-git + OPFS Storage
-
-Web apps use [wasm-git](https://github.com/petersalomonsen/wasm-git) compiled to WebAssembly with the OPFS backend. This gives each web app:
+Web apps use [wasm-git](https://github.com/petersalomonsen/wasm-git) compiled to WebAssembly with the OPFS backend. Git operations run synchronously inside a Web Worker (pthreads + WASMFS), giving each app:
 
 - A full Git repository running client-side in the browser
 - Persistent file storage via the OPFS API
-- The ability to commit, branch, and manage versions entirely in the browser
+- The ability to commit, branch, push, and pull entirely in the browser
 
 See the [wasm-git OPFS example](https://github.com/petersalomonsen/wasm-git/tree/master/examples/opfs) for the reference implementation.
 
-### Built-in Git Server
+## Quick Start
 
-The devcontainer runs a lightweight Git HTTP server that auto-creates bare repos on first access. Web apps proxy git requests through their HTTP server to avoid CORS issues.
-
-### Copilot CLI Agent Skills
-
-The image includes agent skills (`/usr/local/share/skills/agent-skills.md`) that teach Copilot CLI the wasm-git OPFS patterns, COOP/COEP header requirements, Web Worker architecture, and Playwright testing conventions.
-
-## Publishing to a Private GitHub Repository
-
-Once your web app is ready, publish it from inside the devcontainer:
+### Build the image
 
 ```bash
-cd /workspace
-gh repo create my-web-app --private --source=. --remote=origin --push
+git clone https://github.com/petersalomonsen/wasm-git-apps.git
+cd wasm-git-apps
+devcontainer build --workspace-folder .
 ```
+
+Or use the pre-built image from GitHub Packages: `ghcr.io/petersalomonsen/wasm-git-apps:latest`
+
+### Run locally
+
+```bash
+docker run --rm -it \
+  -e GITHUB_TOKEN="$GITHUB_TOKEN" \
+  -p 8080:8080 -p 3000:3000 \
+  ghcr.io/petersalomonsen/wasm-git-apps:latest \
+  bash -c "bash /usr/local/share/scripts/setup-git-server.sh && bash"
+```
+
+Then ask the agent to create an app:
+
+```bash
+copilot --yolo -p "Create a note-taking app in /workspaces/notes-app. \
+  Read /home/node/AGENTS.md for instructions. \
+  Notes should be stored as git commits using wasm-git with OPFS."
+```
+
+### Deploy to Kubernetes
+
+```bash
+# Create the GitHub token secret
+kubectl create secret generic github-pat --from-literal=token=$GITHUB_TOKEN
+
+# Apply manifests
+kubectl apply -f k8s/
+```
+
+The K8s deployment includes a PVC for persistent workspace storage, so apps survive pod restarts.
 
 ## Project Structure
 
 ```
 wasm-git-apps/                        # Image source repo
 ├── .devcontainer/
-│   ├── devcontainer.json             # Build config (for building the image)
+│   ├── devcontainer.json             # Build config
 │   ├── Dockerfile                    # Image definition
 │   ├── scripts/
 │   │   ├── git-server.js             # Git smart HTTP server
-│   │   ├── init-workspace.sh         # Scaffold + git init on container start
-│   │   ├── setup-git-server.sh       # Start git server
-│   │   └── setup-playwright.sh       # Install Playwright browsers
+│   │   └── setup-git-server.sh       # Start git server
 │   └── skills/
-│       └── agent-skills.md           # Copilot CLI agent skills
+│       └── agent-skills.md           # Agent instructions (→ /home/node/AGENTS.md)
 ├── devcontainer-template/
-│   └── devcontainer.json             # Drop-in config for new app projects
-├── templates/wasm-git-opfs/          # Starter template scaffolded into /workspace
+│   └── devcontainer.json             # Drop-in config for using the pre-built image
+├── templates/wasm-git-opfs/          # Starter template (→ /home/node/templates/)
 ├── k8s/                              # Kubernetes deployment manifests
 ├── .github/workflows/
 │   └── publish-image.yml             # Build & push image to ghcr.io
-├── .env.example
-├── .gitignore
 └── README.md
 ```
-
-## Configuration
-
-### Environment Variables
-
-| Variable | Description | Required |
-|---|---|---|
-| `GITHUB_TOKEN` | GitHub PAT for Copilot CLI and repo access | Yes |
-| `GIT_SERVER_PORT` | Port for the local Git server (default: `3000`) | No |
-| `WEB_APP_PORT` | Port for serving the web app (default: `8080`) | No |
 
 ## License
 
