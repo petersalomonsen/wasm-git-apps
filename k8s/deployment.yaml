@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: wasm-git-apps
+  labels:
+    app: wasm-git-apps
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: wasm-git-apps
+  template:
+    metadata:
+      labels:
+        app: wasm-git-apps
+    spec:
+      containers:
+        - name: devcontainer
+          image: ghcr.io/petersalomonsen/wasm-git-apps:latest
+          env:
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: github-pat
+                  key: token
+          ports:
+            - containerPort: 8080
+              name: web-app
+            - containerPort: 3000
+              name: git-server
+          volumeMounts:
+            - name: workspace
+              mountPath: /workspace
+          resources:
+            requests:
+              cpu: 500m
+              memory: 1Gi
+            limits:
+              cpu: "2"
+              memory: 4Gi
+          command: ["bash", "-c"]
+          args:
+            - |
+              bash /usr/local/share/scripts/setup-git-server.sh
+              sleep infinity
+      volumes:
+        - name: workspace
+          persistentVolumeClaim:
+            claimName: wasm-git-apps-workspace

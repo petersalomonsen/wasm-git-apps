@@ -1,0 +1,21 @@
+{
+  "name": "wasm-git-apps",
+  "build": {
+    "dockerfile": "Dockerfile",
+    "context": ".."
+  },
+  "remoteUser": "node",
+  "containerEnv": {
+    "GITHUB_TOKEN": "${localEnv:GITHUB_TOKEN}"
+  },
+  "forwardPorts": [3000, 8080],
+  "postStartCommand": "bash /usr/local/share/scripts/setup-git-server.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "github.copilot",
+        "ms-playwright.playwright"
+      ]
+    }
+  }
+}

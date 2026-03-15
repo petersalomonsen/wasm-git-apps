@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>wasm-git OPFS App</title>
+    <style>
+        body {
+            font-family: system-ui, sans-serif;
+            max-width: 640px;
+            margin: 2rem auto;
+            padding: 0 1rem;
+            color: #1f2328;
+        }
+        h1 { margin-bottom: 0.25rem; }
+        p  { color: #656d76; margin-top: 0.25rem; }
+        #status {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            border-radius: 6px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            background: #f6f8fa;
+        }
+        #status.success { background: #dafbe1; color: #1a7f37; }
+        #status.error   { background: #ffebe9; color: #cf222e; }
+    </style>
+</head>
+<body>
+    <h1>wasm-git OPFS App</h1>
+    <p>Client-side Git storage using wasm-git with OPFS backend.</p>
+    <div id="status">Initializing...</div>
+
+    <script type="module">
+        const repoUrl = `${location.origin}/myrepo.git`;
+        const statusEl = document.getElementById('status');
+
+        function log(msg) {
+            statusEl.textContent += '\n' + msg;
+        }
+
+        let worker, resolveNext;
+        function createWorker() {
+            if (worker) worker.terminate();
+            worker = new Worker(new URL('worker.js', import.meta.url), { type: 'module' });
+            worker.onmessage = (msg) => resolveNext?.(msg.data);
+        }
+        const next = () => new Promise(resolve => { resolveNext = resolve; });
+        const send = (command, params = {}) => {
+            worker.postMessage({ command, ...params });
+            return next();
+        };
+
+        async function clearOPFS(repoName) {
+            try {
+                const root = await navigator.storage.getDirectory();
+                await root.removeEntry(repoName, { recursive: true });
+            } catch (e) {}
+        }
+
+        async function main() {
+            statusEl.textContent = 'Starting...';
+
+            await clearOPFS('myrepo.git');
+            createWorker();
+            await next();
+            log('Worker ready');
+
+            log('Cloning repository...');
+            const cloneResult = await send('clone', { url: repoUrl });
+            log('Cloned: ' + JSON.stringify(cloneResult.dircontents));
+
+            log('Writing and pushing...');
+            await send('writecommitandpush', {
+                filename: 'hello.txt',
+                contents: 'Hello from wasm-git OPFS!\n',
+            });
+            log('Pushed successfully');
+
+            log('Verifying...');
+            const readResult = await send('readfile', { filename: 'hello.txt' });
+            log('File contents: ' + readResult.filecontents.trim());
+
+            statusEl.classList.add('success');
+            log('\nAll operations completed successfully!');
+            statusEl.id = 'demo-complete';
+        }
+
+        main().catch(err => {
+            console.error(err);
+            statusEl.classList.add('error');
+            statusEl.textContent += '\nError: ' + err.message;
+            statusEl.id = 'demo-error';
+        });
+    </script>
+</body>
+</html>

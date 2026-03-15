@@ -1,0 +1,16 @@
+{
+  "name": "wasm-git-opfs-app",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "setup": "mkdir -p public && cp node_modules/wasm-git/lg2_opfs.js public/ && cp node_modules/wasm-git/lg2_opfs.wasm public/",
+    "start": "node serve.mjs",
+    "test": "npx playwright test"
+  },
+  "dependencies": {
+    "wasm-git": "^0.0.14"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.52.0"
+  }
+}
