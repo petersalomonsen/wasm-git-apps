@@ -167,16 +167,18 @@ data/
 
 This way, two users adding records simultaneously create different files — no conflict. Use a unique identifier in the filename (timestamp + random suffix, or a UUID).
 
-### Pull before push
+### Fetch and merge before push
 
-Always pull from the remote before pushing to pick up changes from other clients. If the push fails (conflict), pull and retry:
+wasm-git does **not** have a `pull` command. Use `fetch` + `merge` instead. Always fetch before pushing to pick up changes from other clients:
 
 ```javascript
-// In the worker: pull-commit-push with retry
-function pullCommitAndPush(filename, contents, commitMsg) {
+// In the worker: fetch-merge-commit-push
+function fetchMergeCommitAndPush(filename, contents, commitMsg) {
     FS.chdir(currentRepoDir);
-    // Pull latest changes first
-    try { lg.callMain(['pull']); } catch (e) { /* empty repo or no remote changes */ }
+    // Fetch latest changes from remote
+    try { lg.callMain(['fetch', 'origin']); } catch (e) { /* empty repo */ }
+    // Merge remote changes into local branch
+    try { lg.callMain(['merge', 'origin/master']); } catch (e) { /* nothing to merge */ }
     FS.chdir(currentRepoDir);
     FS.writeFile(filename, contents);
     lg.callMain(['add', '--verbose', filename]);
@@ -184,6 +186,26 @@ function pullCommitAndPush(filename, contents, commitMsg) {
     lg.callMain(['commit', '-m', commitMsg]);
     FS.chdir(currentRepoDir);
     lg.callMain(['push']);
+}
+```
+
+If push fails with "cannot push because a reference that you are trying to update on the remote contains commits that are not present locally", fetch + merge and retry:
+
+```javascript
+// Push with retry on conflict
+function pushWithRetry() {
+    FS.chdir(currentRepoDir);
+    try {
+        lg.callMain(['push']);
+    } catch (e) {
+        // Conflict — fetch, merge, and retry
+        FS.chdir(currentRepoDir);
+        lg.callMain(['fetch', 'origin']);
+        FS.chdir(currentRepoDir);
+        lg.callMain(['merge', 'origin/master']);
+        FS.chdir(currentRepoDir);
+        lg.callMain(['push']);
+    }
 }
 ```
 
@@ -201,9 +223,11 @@ const entries = FS.readdir('data/entries')
 ### Conflict resolution strategy
 
 For the rare case where two users edit the **same** file:
-- The second push will fail
-- Pull to get the other user's changes
-- For most apps, **last-write-wins** is acceptable — just overwrite and re-push
+- The second push will fail with: `cannot push because a reference that you are trying to update on the remote contains commits that are not present locally`
+- Fetch + merge to get the other user's changes
+- If there's a merge conflict, `status` will show: `conflict: a:<file> o:<file> t:<file>`
+- Resolve by writing the desired content, then `add`, `commit`, and `push`
+- For most apps, **last-write-wins** is acceptable — just overwrite the conflicted file and commit
 - For collaborative apps, consider **branch-per-user** where each user pushes to their own branch and merges happen server-side
 
 ## Creating a New Web App
@@ -329,4 +353,4 @@ npx playwright test
 8. **Include a service worker** for offline availability — use network-first strategy to prevent stale cache
 9. **Test the service worker** with Playwright — verify offline access works AND that updates are served fresh when online
 10. **One file per record** — never store all data in a single file; use a directory of individual JSON files to avoid merge conflicts
-11. **Pull before push** — always pull latest changes before pushing to handle concurrent access from multiple browsers/users
+11. **Fetch + merge before push** — always `fetch('origin')` + `merge('origin/master')` before pushing; wasm-git has no `pull` command
