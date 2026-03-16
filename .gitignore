@@ -5,3 +5,7 @@ dist/
 .playwright-cache/
 test-results/
 playwright-report/
+.local-repos/
+.local-run-logs/
+templates/wasm-git-opfs/public/lg2_opfs.js
+templates/wasm-git-opfs/public/lg2_opfs.wasm
