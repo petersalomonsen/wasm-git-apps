@@ -4,19 +4,19 @@ import path from 'path';
 
 test.describe('service worker', () => {
     test('registers and activates', async ({ page, context }) => {
-        await page.goto('/');
+        const repo = `sw-register-${Date.now()}.git`;
+        await page.goto(`/?repo=${repo}`);
 
-        // Wait for service worker to activate
-        const sw = await page.evaluate(async () => {
+        await expect.poll(async () => page.evaluate(async () => {
             const reg = await navigator.serviceWorker.ready;
-            return { state: reg.active?.state, scope: reg.scope };
-        });
-        expect(sw.state).toBe('activated');
+            return reg.active?.state;
+        })).toBe('activated');
     });
 
     test('app works offline', async ({ page, context }) => {
+        const repo = `sw-offline-${Date.now()}.git`;
         // Load the page to populate the cache
-        await page.goto('/');
+        await page.goto(`/?repo=${repo}`);
 
         // Wait for service worker to be active and controlling the page
         await page.evaluate(async () => {
@@ -52,8 +52,9 @@ test.describe('service worker', () => {
     });
 
     test('serves fresh content when online (no stale cache)', async ({ page }) => {
+        const repo = `sw-fresh-${Date.now()}.git`;
         // Load the page to register the service worker
-        await page.goto('/');
+        await page.goto(`/?repo=${repo}`);
         await page.evaluate(async () => {
             await navigator.serviceWorker.ready;
         });
@@ -61,15 +62,18 @@ test.describe('service worker', () => {
         // Inject a marker into index.html on the server
         const indexPath = path.join(process.cwd(), 'public', 'index.html');
         const original = fs.readFileSync(indexPath, 'utf8');
-        const marker = `<!-- sw-update-test-${Date.now()} -->`;
-        fs.writeFileSync(indexPath, original + marker);
+        const marker = `sw-update-test-${Date.now()}`;
+        const updated = original.replace(
+            '</head>',
+            `    <meta name="sw-update-test" content="${marker}">\n</head>`
+        );
+        fs.writeFileSync(indexPath, updated);
 
         try {
             // Reload — network-first should fetch the updated file
             await page.reload();
 
-            const html = await page.content();
-            expect(html).toContain(marker);
+            await expect(page.locator('meta[name="sw-update-test"]')).toHaveAttribute('content', marker);
         } finally {
             // Restore original file
             fs.writeFileSync(indexPath, original);

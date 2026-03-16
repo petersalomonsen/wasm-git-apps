@@ -37,7 +37,9 @@
             navigator.serviceWorker.register('/sw.js');
         }
 
-        const repoUrl = `${location.origin}/myrepo.git`;
+        const params = new URLSearchParams(location.search);
+        const repoName = params.get('repo') || 'myrepo.git';
+        const repoUrl = `${location.origin}/${repoName}`;
         const statusEl = document.getElementById('status');
 
         function log(msg) {
@@ -66,7 +68,7 @@
         async function main() {
             statusEl.textContent = 'Starting...';
 
-            await clearOPFS('myrepo.git');
+            await clearOPFS(repoName);
             createWorker();
             await next();
             log('Worker ready');
